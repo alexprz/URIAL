@@ -11,6 +11,7 @@ import sklearn
 from sklearn.covariance import LedoitWolf
 from time import time
 import nibabel as nib
+import copy
 
 import matplotlib
 matplotlib.use('MacOSX')
@@ -20,6 +21,8 @@ raw = 'Raw/'
 preproc = 'Preproc/'
 data = preproc
 subject = 'sub-02/'
+
+
 
 if __name__ == '__main__':
     fmri_img = nilearn.image.load_img(data+subject+'sub-02_task-NC2U_run-01_tFilter_None.100.0_run-1_sFilter_LP_7.577999999999999mm.nii.gz')
@@ -161,25 +164,49 @@ if __name__ == '__main__':
     print('Thetas :\n', Thetas)
     print('Thetas_normalized :\n', Thetas_normalized)
 
-    print('Writing in GLM results...', end=' ', flush=True)
-    for label, reg_result in estimates.items():
+    print('Writing in new GLM results...', end=' ', flush=True)
+    fmri_glm_normalized = copy.deepcopy(fmri_glm)
+    for label, reg_result in fmri_glm_normalized.results_[0].items():
         _, n_voxels_in_label = reg_result.theta.shape
 
         reg_result.theta_normalized = np.ones((n_tasks, n_voxels_in_label))
 
         for local_voxel_id in range(n_voxels_in_label):
             global_voxel_id = encode_voxel[label, local_voxel_id]
-            reg_result.theta_normalized[:, local_voxel_id] = Thetas_normalized[:, global_voxel_id]
+            reg_result.theta[:, local_voxel_id] = Thetas_normalized[:, global_voxel_id]
 
     print('Done')
 
-    for label, reg_result in estimates.items():
+    for label, reg_result in fmri_glm_normalized.results_[0].items():
         _, n_voxels_in_label = reg_result.theta.shape
 
         for local_voxel_id in range(n_voxels_in_label):
-            # for k in range(n_tasks):
-            k = 0
-            print('{} {}'.format(reg_result.theta[k, local_voxel_id], reg_result.theta_normalized[k, local_voxel_id]))
+            for k in range(n_tasks):
+                print('{} {}'.format(fmri_glm.results_[0][label].theta[k, local_voxel_id], reg_result.theta[k, local_voxel_id]))
 
     print('Normalization done in {}s'.format(time()-time0))
+
+
+    # Contrast computation
+
+    contrast_matrix = np.eye(design_matrix.shape[1])
+    # basic_contrasts = dict([(column, contrast_matrix[i]) for i, column in enumerate(design_matrix.columns)])
+    basic_contrasts = [contrast_matrix[i] for i in range(design_matrix.shape[1])]
+
+    z_map = fmri_glm.compute_contrast(basic_contrasts, output_type='z_score')
+    z_map_normalized = fmri_glm_normalized.compute_contrast(basic_contrasts, output_type='z_score')
+
+    plotting.plot_stat_map(
+        z_map, bg_img=data+subject+'sub-02_task-NC2U_run-01_tFilter_None.100.0_run-1_mean.nii.gz',
+         threshold=0.2, display_mode='z',
+        cut_coords=3, black_bg=True)
+
+    plotting.plot_stat_map(
+        z_map_normalized, bg_img=data+subject+'sub-02_task-NC2U_run-01_tFilter_None.100.0_run-1_mean.nii.gz',
+         threshold=3, display_mode='z',
+        cut_coords=3, black_bg=True)
+
+    plotting.show()
+
+
 
