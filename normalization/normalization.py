@@ -10,9 +10,10 @@ import scipy
 import sklearn
 from sklearn.covariance import LedoitWolf
 from time import time
+import nibabel as nib
 
 import matplotlib
-matplotlib.use('TkAgg')
+matplotlib.use('MacOSX')
 from matplotlib import pyplot as plt
 
 raw = 'Raw/'
@@ -24,38 +25,85 @@ if __name__ == '__main__':
     fmri_img = nilearn.image.load_img(data+subject+'sub-02_task-NC2U_run-01_tFilter_None.100.0_run-1_sFilter_LP_7.577999999999999mm.nii.gz')
     print(fmri_img.shape)
 
+    events = pd.read_table(raw+subject+'func/'+'sub-02_task-NC2U_run-1_events.tsv')
+    # mask = nilearn.image.load_image()
+    mask = nilearn.image.resample_to_img('HO_HG_left.nii', 'Raw/sub-02/anat/sub-02_T1w.nii.gz')
+    mask = nib.Nifti1Image(np.round(mask.get_data()), mask.affine)
+    # mask.to_filename('mask.nii')
+    #nilearn.plotting.plot_roi('HO_HG_left.nii')
+    # nilearn.plotting.plot_roi(mask, bg_img='Raw/sub-02/anat/sub-02_T1w.nii.gz')
+
+    #nilearn.plotting.plot_stat_map(data+subject+'sub-02_task-NC2U_run-01_tFilter_None.100.0_run-1_mean.nii.gz', bg_img='Raw/sub-02/anat/sub-02_T1w.nii.gz')
+    # nilearn.plotting.plot_roi(mask, bg_img=data+subject+'sub-02_task-NC2U_run-01_tFilter_None.100.0_run-1_mean.nii.gz')
+    # plotting.show()
+    print(mask.get_data())
     t_r = 1.5
 
-    fsaverage = nilearn.datasets.fetch_surf_fsaverage5()
+    # fmri_glm = FirstLevelModel(t_r=t_r,
+    #                        noise_model='ar1',
+    #                        standardize=False,
+    #                        hrf_model='spm',
+    #                        drift_model='cosine',
+                           # period_cut=160)
 
-    texture = surface.vol_to_surf(fmri_img, fsaverage.pial_right)
+    fmri_glm = FirstLevelModel(mask=mask, minimize_memory=False)
 
-    n_scans = texture.shape[1]
+    n_scans = fmri_img.shape[-1]
     frame_times = t_r * np.arange(n_scans)
 
     design_matrix = make_first_level_design_matrix(frame_times,
                                                events=events,
-                                               hrf_model='glover + derivative'
+                                               hrf_model='spm + derivative',
+                                               period_cut=128
                                                )
 
-    labels, estimates = run_glm(texture.T, design_matrix.values)
+    fmri_glm = fmri_glm.fit(fmri_img, design_matrices=design_matrix)
+
+    print(fmri_glm)
+
+    print(fmri_glm.results_)
+
+    print(fmri_glm.labels_)
+
+    for key, reg_results in fmri_glm.results_[0].items():
+        print(reg_results.resid.shape)
+
+    # exit()
+
+    labels = fmri_glm.labels_[0]
+    estimates = fmri_glm.results_[0]
+
+
+    # fsaverage = nilearn.datasets.fetch_surf_fsaverage5()
+
+    # texture = surface.vol_to_surf(fmri_img, fsaverage.pial_right)
+
+    # n_scans = texture.shape[1]
+    # frame_times = t_r * np.arange(n_scans)
+
+    # design_matrix = make_first_level_design_matrix(frame_times,
+    #                                            events=events,
+    #                                            hrf_model='glover + derivative'
+    #                                            )
+
+    # labels, estimates = run_glm(texture.T, design_matrix.values)
 
     time0 = time()
 
-    print('Previous length')
-    print(len(labels))
-    print(len(estimates))
+    # print('Previous length')
+    # print(len(labels))
+    # print(len(estimates))
 
-    # Remove first key
-    for label, reg_result in estimates.items():
-        del estimates[label]
-        removed_label = label
-        break
+    # # Remove first key
+    # for label, reg_result in estimates.items():
+    #     del estimates[label]
+    #     removed_label = label
+    #     break
 
-    labels = np.delete(labels, np.where(labels == removed_label), axis=0)
-    print('New length')
-    print(len(labels))
-    print(len(estimates))
+    # labels = np.delete(labels, np.where(labels == removed_label), axis=0)
+    # print('New length')
+    # print(len(labels))
+    # print(len(estimates))
 
     n_voxels = len(labels)
     n_tasks = design_matrix.shape[1]
@@ -117,19 +165,21 @@ if __name__ == '__main__':
     for label, reg_result in estimates.items():
         _, n_voxels_in_label = reg_result.theta.shape
 
+        reg_result.theta_normalized = np.ones((n_tasks, n_voxels_in_label))
+
         for local_voxel_id in range(n_voxels_in_label):
             global_voxel_id = encode_voxel[label, local_voxel_id]
-
-            reg_result.theta_normalized = np.zeros((n_tasks, n_voxels_in_label)) 
             reg_result.theta_normalized[:, local_voxel_id] = Thetas_normalized[:, global_voxel_id]
+
     print('Done')
 
     for label, reg_result in estimates.items():
         _, n_voxels_in_label = reg_result.theta.shape
 
         for local_voxel_id in range(n_voxels_in_label):
-            for k in range(n_tasks):
-                print('{} {}'.format(reg_result.theta[k, local_voxel_id], reg_result.theta_normalized[k, local_voxel_id]))
+            # for k in range(n_tasks):
+            k = 0
+            print('{} {}'.format(reg_result.theta[k, local_voxel_id], reg_result.theta_normalized[k, local_voxel_id]))
 
     print('Normalization done in {}s'.format(time()-time0))
 
