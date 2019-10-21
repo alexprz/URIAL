@@ -27,7 +27,7 @@ preproc = 'Preproc/'
 data = preproc
 subject = 'sub-02/'
 
-@mem.cache
+# @mem.cache
 def normalization_matrix(R, verbose=False):
     '''
         Compute the matrix containing the normalization factors to apply to the patterns.
@@ -42,18 +42,26 @@ def normalization_matrix(R, verbose=False):
 
     if verbose: print('Building residuals covariance matrix...', end=' ', flush=True)
     S = np.dot(R.transpose(), R)/n_time_points
+    # print(f'Sigma\n{S}\n')
+
 
     if verbose: print('Done\nShrinking covariance matrix...', end=' ', flush=True)
-    S = sklearn.covariance.LedoitWolf().fit(S).covariance_
+    fitted_LW = sklearn.covariance.LedoitWolf(assume_centered=False).fit(S)
+    # S = fitted_LW.covariance_
+    # print(f'Shrinkage {fitted_LW.shrinkage_}')
+    S = fitted_LW.precision_
 
-    if verbose: print('Done\nInverting covariance matrix...', end=' ', flush=True)
-    S = np.linalg.inv(S)
+    # if verbose: print('Done\nInverting covariance matrix...', end=' ', flush=True)
+    # S = np.linalg.inv(S)
 
     if verbose: print('Done\nSquare root invert covariance matrix...', end=' ', flush=True)
     S = scipy.linalg.sqrtm(S)
     if verbose:print('Done')
 
-    return np.real(S)
+    # print(f'S complex {S}')
+
+    return S
+    # return np.real(S)
 
 def simulate_events(n_conditions, n_scans, t_r, n_trials=1, n_rests=0, n_tr_trials=1, n_tr_rests=1):
     len_trials = n_tr_trials*t_r
