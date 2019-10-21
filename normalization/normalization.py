@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import nilearn
+import nistats
 from nilearn import plotting, surface
 from nistats.first_level_model import FirstLevelModel, run_glm
 from nistats.reporting import plot_design_matrix
@@ -83,31 +84,42 @@ def simulate_events(n_conditions, n_scans, t_r, n_trials=1, n_rests=0, n_tr_tria
 
     events = pd.DataFrame({'trial_type': conditions, 'onset': onsets, 'duration': durations})
 
+    print(events)
+
     return frame_times, events
 
-def fmri_simulation(n_voxels, n_conditions, X, G, sigma_noise, s):
+def fmri_simulation(n_voxels, X, G, sigma_noise, s):
     '''
         Performs the simulation of a first level analysis.
 
         Args:
             n_voxels (int): number of voxels
-            n_conditions (int): number of conditions
             X (array of shape (n_time_points, n_conditions)): design matrix used to create the true signal from the simulated Betas coefficients and gaussian noise
             G (array of shape (n_conditions, n_conditions): Covariance matrix. Conditions are supposed to have the similarity structure determined by G.
             sigma_noise (float): Standard deviation of the Gaussian noise added to the signal obtained by multiplying X by the Betas.
 
         Returns:
-            S (array of shape (n_time_points, n_voxels)): Array storing the simulated noised signal
+            T (array of shape (n_time_points, n_voxels)): Array storing the simulated noised signal
             B (array of shape (n_conditions, n_voxels)): Array storing the simulated true Betas
             R (array of shape (n_time_points, n_voxels)): Array storing the simulated true residuals (R = S-X*B)
     '''
-    B = np.random.multivariate_normal(np.zeros(n_conditions), G, n_voxels)
-    
-    # R = 
-    np.dot(X, B)
+    n_time_points, n_conditions = X.shape
+
+    B = np.random.multivariate_normal(np.zeros(n_conditions), G, n_voxels).T
+
+    T = np.dot(X, B)
+    Eps = np.random.normal(0, sigma_noise, (T.shape))
+
+    T_noised = T + Eps
+
+    # Spatial convolution:
+    T_noised = scipy.ndimage.filters.gaussian_filter1d(T_noised, s, axis=1)
 
 
-    return S, B, R
+    # R =
+    # R = T - T_noised
+
+    return T, T_noised, B
 
 
 if __name__ == '__main__':
@@ -122,16 +134,22 @@ if __name__ == '__main__':
     #                                            hrf_model='spm + derivative',
     #                                            period_cut=128
     #                                            )
-    
-    t_r = 2.72
 
+    # Experiment parameters
+    t_r = 2.72
     n_voxels = 1492+757
-    n_conditions = 5
+    n_conditions = 10
     n_trials = 3
     n_rests = 5
     n_tr_trials = 3
     n_tr_rests = 6
     n_scans=123
+
+    # Noise parameters
+    sigma_noise = 2
+    s = .9
+
+
 
     frame_times, events = simulate_events(n_conditions=n_conditions,
                                           n_scans=n_scans,
@@ -146,10 +164,46 @@ if __name__ == '__main__':
                                        drift_order=0,
                                        hrf_model='glover')
 
+    G = 5*np.eye(X.shape[1])
     plot_design_matrix(X)
     plt.show()
+    exit()
 
-    G = np.eye(n_conditions)
+
+    T, T_noised, B = fmri_simulation(n_voxels=n_voxels,
+                    X=X,
+                    G=G,
+                    sigma_noise=sigma_noise,
+                    s=s)
+
+    labels, results = nistats.first_level_model.run_glm(T_noised, X, noise_model='ols')
+
+    # print(len(labels))
+
+
+
+    # for k, v in results.items():
+    #     print(v)
+    #     print(v.resid.shape)
+    #     print(v.theta.shape)
+
+    R = results[0.].resid
+    Theta = results[0.].theta
+
+    print(R)
+    print(Theta)
+
+    S = normalization_matrix(R, verbose=True)
+    print(S)
+
+    Theta_normalized = np.dot(Theta, S)
+
+    print(Theta_normalized)
+
+    # print(labels)
+    # print(results)
+    # print(T, B, R)
+    # print(R)
 
     # fmri_img = nilearn.image.load_img(data+subject+'sub-02_task-NC2U_run-01_tFilter_None.100.0_run-1_sFilter_LP_7.577999999999999mm.nii.gz')
     # print(fmri_img.shape)
